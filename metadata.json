@@ -1,0 +1,5 @@
+{
+  "name": "AudioInsight AI",
+  "description": "Transcribe, summarize, and extract actionable insights from audio files uploaded locally or via Google Drive.",
+  "requestFramePermissions": []
+}
