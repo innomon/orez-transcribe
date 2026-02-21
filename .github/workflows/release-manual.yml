@@ -1,0 +1,106 @@
+name: Release Electron App (Manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag to create / use (example: v1.2.3)'
+        required: true
+        type: string
+      prerelease:
+        description: 'Mark as pre-release?'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+      draft:
+        description: 'Create as draft (review before publishing)?'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'false'
+          - 'true'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      # If your project needs a separate frontend build step:
+      # - name: Build frontend
+      #   run: npm run build
+
+      - name: Build Electron app
+        run: npm run electron:build
+
+      - name: Show what was built
+        shell: bash
+        run: ls -la release/ | grep -v '^total'
+
+  release:
+    # Only one job should create/upload the release
+    needs: build
+    runs-on: ubuntu-latest
+    if: always() && !cancelled()   # run even if some builds failed (your call)
+
+    steps:
+      - name: Checkout (again – for tagging)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create git tag locally
+        run: |
+          git tag "${{ inputs.version }}" || echo "Tag already exists"
+          git push origin "${{ inputs.version }}" || echo "Push tag failed (maybe already exists)"
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+          pattern: '*'          # downloads everything from build jobs
+          merge-multiple: true
+
+      - name: Show downloaded files
+        run: find artifacts/ -type f
+
+      - name: Create or update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name:          ${{ inputs.version }}
+          name:              AudioInsight ${{ inputs.version }}
+          generate_release_notes: true
+          draft:             ${{ inputs.draft == 'true' }}
+          prerelease:        ${{ inputs.prerelease == 'true' }}
+          files: |
+            artifacts/**/release/*.exe
+            artifacts/**/release/*.zip
+            artifacts/**/release/*.dmg
+            artifacts/**/release/*.AppImage
+            artifacts/**/release/*.deb
+            artifacts/**/release/*.rpm
+            artifacts/**/release/*.tar.gz
+            artifacts/**/release/*.blockmap
