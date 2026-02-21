@@ -4,25 +4,20 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version tag to create / use (example: v1.2.3)'
+        description: 'Version tag (e.g., v1.2.3)'
         required: true
-        type: string
       prerelease:
         description: 'Mark as pre-release?'
         required: false
         default: 'false'
         type: choice
-        options:
-          - 'false'
-          - 'true'
+        options: ['false', 'true']
       draft:
-        description: 'Create as draft (review before publishing)?'
+        description: 'Create as draft?'
         required: false
         default: 'false'
         type: choice
-        options:
-          - 'false'
-          - 'true'
+        options: ['false', 'true']
 
 permissions:
   contents: write
@@ -32,8 +27,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-
+        os: [macos-latest, ubuntu-latest, windows-latest]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -47,60 +41,78 @@ jobs:
           cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci  # Changed to ci for consistency
 
-      # If your project needs a separate frontend build step:
-      # - name: Build frontend
-      #   run: npm run build
+      - name: Build Electron App (macOS)
+        if: matrix.os == 'macos-latest'
+        run: npm run build && npx electron-builder --mac --x64 --arm64
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build Electron app
-        run: npm run electron:build
+      - name: Build Electron App (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: npm run build && npx electron-builder --linux --x64 --arm64
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Show what was built
+      - name: Build Electron App (Windows)
+        if: matrix.os == 'windows-latest'
+        run: npm run build && npx electron-builder --win --x64
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: List release folder contents (debug)
+        if: always()
         shell: bash
-        run: ls -la release/ | grep -v '^total'
+        run: ls -la release/ || echo "release/ is empty!"
+
+      - name: Upload build artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.os }}  # Matches yours
+          path: release/
+          if-no-files-found: warn
 
   release:
-    # Only one job should create/upload the release
     needs: build
     runs-on: ubuntu-latest
-    if: always() && !cancelled()   # run even if some builds failed (your call)
-
     steps:
-      - name: Checkout (again – for tagging)
+      - name: Checkout (for tagging)
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Create git tag locally
+      - name: Create and push tag
         run: |
-          git tag "${{ inputs.version }}" || echo "Tag already exists"
-          git push origin "${{ inputs.version }}" || echo "Push tag failed (maybe already exists)"
+          git tag "${{ inputs.version }}" --force || true
+          git push origin "${{ inputs.version }}" --force || true
 
-      - name: Download all build artifacts
+      - name: Download all builds
         uses: actions/download-artifact@v4
         with:
-          path: artifacts/
-          pattern: '*'          # downloads everything from build jobs
+          path: all-artifacts/
+          pattern: release-*
           merge-multiple: true
 
-      - name: Show downloaded files
-        run: find artifacts/ -type f
+      - name: List downloaded files (debug)
+        run: find all-artifacts/ -type f || echo "No files!"
 
-      - name: Create or update GitHub Release
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name:          ${{ inputs.version }}
-          name:              AudioInsight ${{ inputs.version }}
+          tag_name: ${{ inputs.version }}
+          name: AudioInsight ${{ inputs.version }}
           generate_release_notes: true
-          draft:             ${{ inputs.draft == 'true' }}
-          prerelease:        ${{ inputs.prerelease == 'true' }}
+          draft: ${{ inputs.draft == 'true' }}
+          prerelease: ${{ inputs.prerelease == 'true' }}
           files: |
-            artifacts/**/release/*.exe
-            artifacts/**/release/*.zip
-            artifacts/**/release/*.dmg
-            artifacts/**/release/*.AppImage
-            artifacts/**/release/*.deb
-            artifacts/**/release/*.rpm
-            artifacts/**/release/*.tar.gz
-            artifacts/**/release/*.blockmap
+            all-artifacts/**/release/*.exe
+            all-artifacts/**/release/*.zip
+            all-artifacts/**/release/*.dmg
+            all-artifacts/**/release/*.AppImage
+            all-artifacts/**/release/*.deb
+            all-artifacts/**/release/*.rpm
+            all-artifacts/**/release/*.tar.gz
+            all-artifacts/**/release/*.blockmap
+            
