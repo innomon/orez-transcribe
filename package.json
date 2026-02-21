@@ -4,6 +4,10 @@
   "version": "0.0.0",
   "type": "module",
   "main": "electron/main.cjs",
+  "author": {
+    "name": "Ashish Banerjee",
+    "email": "tech@ashishbanerjee.com"
+  },
   "scripts": {
     "dev": "vite --port=3000 --host=0.0.0.0",
     "build": "vite build",
